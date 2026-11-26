@@ -113,6 +113,9 @@ const TEAM_WIN_TEXT = { citizen: "🎉 市民チームの勝ち！", wolf: "🐺
 function defaultSettings() {
   return {
     preset: "normal",
+    mode: "normal",
+    wolfMode: "random",
+    pool: { uragiri: true, gang: true, uranai: true, keisatsu: true, dj: true, mokugeki: true, obake: true, rapper: true },
     counts: { wolf: 1, uragiri: 1, gang: 0, uranai: 1, keisatsu: 1, dj: 1, mokugeki: 0, obake: 1, rapper: 0 },
     rapperWin: true, witnessTrap: true, gangTrap: true,
     daySec: 180, eveningSec: 60, voteSec: 60
@@ -327,17 +330,44 @@ function roleGuideRowHTML(key) {
 $("roleGuide").innerHTML = ROLE_KEYS.map(roleGuideRowHTML).join("");
 
 // ---- ロビー（設定） ----
+const POOL_KEYS = ["uragiri","gang","uranai","keisatsu","dj","mokugeki","obake","rapper"];
+function poolKeys() {
+  const s = roomData.settings, pool = s.pool || {};
+  return POOL_KEYS.filter(k => pool[k] !== false);
+}
+function wolfOptions() {
+  const wm = roomData.settings.wolfMode || "random";
+  return wm === "1" ? [1] : wm === "2" ? [2] : [1, 2];
+}
+function randomInfo() {
+  const n = playersArr().length, slots = n * 2, pk = poolKeys();
+  const cases = wolfOptions().map(w => {
+    const spMax = slots - w - 1; // 市民を最低1枚残す
+    const specials = Math.max(0, Math.min(pk.length, spMax));
+    return { wolf: w, specials, shimin: slots - w - specials, valid: spMax >= 0 };
+  });
+  const rng = (f) => { const v = cases.map(f); return { min: Math.min(...v), max: Math.max(...v) }; };
+  return { n, slots, poolKeys: pk, cases, wolfR: rng(c => c.wolf), spR: rng(c => c.specials), shR: rng(c => c.shimin),
+           ok: n >= 3 && cases.every(c => c.valid) };
+}
 function deckInfo() {
   const n = playersArr().length;
   const s = roomData.settings;
+  if ((s.mode || "normal") === "random") { const ri = randomInfo(); return { n, others: 0, shimin: ri.shR.min, ok: ri.ok, random: true }; }
   let others = 0;
   for (const k of ROLE_KEYS) if (k !== "shimin") others += (s.counts[k] || 0);
   const shimin = n * 2 - others;
   return { n, others, shimin, ok: n >= 3 && shimin >= 0 && (s.counts.wolf || 0) >= 1 };
 }
 // このゲームに入っているカードの内訳（選んだ分＋場の分ぜんぶ）
+function rangeText(r) { return r.min === r.max ? `${r.min}枚` : `${r.min}枚か${r.max}枚`; }
 function breakdownHTML() {
   const s = roomData.settings, d = deckInfo();
+  if ((s.mode || "normal") === "random") {
+    const ri = randomInfo();
+    const poolNames = ri.poolKeys.map(k => `${ROLES[k].icon}${ROLES[k].name}`).join("・") || "なし";
+    return `<p class="text-xs text-slate-500 mb-2">🃏 内訳（全${ri.slots}枚）：🧑市民 ${rangeText(ri.shR)} ／ 🐺人狼 ${rangeText(ri.wolfR)} ／ 候補（${poolNames}）から ${rangeText(ri.spR)}</p>`;
+  }
   const parts = ROLE_KEYS.filter(k => ((k === "shimin" ? d.shimin : (s.counts[k] || 0)) > 0))
     .map(k => `${ROLES[k].icon}${ROLES[k].name} ${k === "shimin" ? d.shimin : s.counts[k]}枚`);
   return `<p class="text-xs text-slate-500 mb-2">🃏 内訳（全${d.n * 2}枚）：${parts.join(" ／ ")}</p>`;
@@ -355,13 +385,23 @@ function lobbyPanelHTML() {
   const timeInput = (key, label) => `<label class="flex items-center justify-between py-1 text-sm font-bold"><span>${label}</span><span><input type="number" data-time="${key}" value="${Math.round(s[key]/60*10)/10}" min="0" step="0.5" ${host?"":"disabled"} class="w-20 border-2 border-slate-200 rounded-lg px-2 py-1 text-right"> 分</span></label>`;
   return `<div class="bg-white rounded-2xl shadow p-4 fade-in">
     <p class="font-black text-lg mb-1">⚙️ ゲーム設定 ${host ? "（ホストが変更できるよ）" : "（ホストが設定中…）"}</p>
-    <p class="text-sm text-slate-500 mb-2">参加者 ${d.n}人 ／ カード合計 ${d.n*2}枚（1人2枚）／ 市民は自動で <b>${Math.max(d.shimin,0)}枚</b></p>
+    <p class="text-sm text-slate-500 mb-2">参加者 ${d.n}人 ／ カード合計 ${d.n*2}枚（1人2枚）${(s.mode||"normal")==="random" ? "／ 🎲ランダムモード：人狼と市民は確定、残りは候補からランダム" : `／ 市民は自動で <b>${Math.max(d.shimin,0)}枚</b>`}</p>
+    ${host ? `<div class="flex gap-2 mb-2">${[["normal","いつもの"],["random","🎲 ランダム（完全カスタム）"]].map(([md,label])=>`<button data-mode="${md}" class="flex-1 rounded-xl border-2 py-2 font-bold ${(s.mode||"normal")===md?"bg-emerald-600 text-white border-emerald-600":"bg-white border-slate-300"}">${label}</button>`).join("")}</div>` : `<p class="text-sm font-bold mb-2">モード：${(s.mode||"normal")==="random"?"🎲 ランダム（完全カスタム）":"いつもの"}</p>`}
+    ${(s.mode||"normal")==="random" ? `
+    <div class="py-1 border-b border-slate-100"><div class="flex items-center justify-between"><span class="text-sm font-bold">🐺 人狼の枚数</span>
+    ${host ? `<span class="flex gap-1">${[["random","1〜2ランダム"],["1","1枚"],["2","2枚"]].map(([wm,label])=>`<button data-wolfmode="${wm}" class="rounded-full border-2 px-3 h-8 font-bold text-sm ${(s.wolfMode||"random")===wm?"bg-indigo-600 text-white border-indigo-600":"bg-white border-slate-300"}">${label}</button>`).join("")}</span>` : `<span class="font-black">${(s.wolfMode||"random")==="random"?"1〜2枚ランダム":(s.wolfMode)+"枚"}</span>`}</div>
+    <div class="text-xs text-slate-500">人狼は確定で入るよ。枚数をランダムにも固定にもできるよ。</div></div>
+    <p class="text-sm font-bold mt-2 mb-1">🎲 候補に入れる役職（この中からランダムで選ばれるよ）</p>
+    ${POOL_KEYS.map(k => { const r = ROLES[k]; const on = !s.pool || s.pool[k] !== false;
+      return `<div class="py-1 border-b border-slate-100"><div class="flex items-center justify-between"><span class="text-sm font-bold">${r.icon} ${r.name} <span class="text-xs text-slate-400">${r.team}</span></span>${host ? `<button data-pool="${k}" class="rounded-full border-2 px-3 h-8 font-bold text-sm ${on?"bg-emerald-600 text-white border-emerald-600":"bg-white border-slate-300 text-slate-400"}">${on?"候補に入れる":"入れない"}</button>` : `<span class="font-black">${on?"候補":"―"}</span>`}</div><div class="text-xs font-bold text-indigo-700 mt-0.5">🛠️ 仕事：${r.job}</div></div>`; }).join("")}
+    <div class="py-1 border-b border-slate-100"><div class="flex items-center justify-between"><span class="text-sm font-bold">${ROLES.shimin.icon} ${ROLES.shimin.name} <span class="text-xs text-slate-400">${ROLES.shimin.team}</span></span><span class="text-sm font-black">残り全部（最低1枚）</span></div><div class="text-xs font-bold text-indigo-700 mt-0.5">🛠️ 仕事：${ROLES.shimin.job}</div></div>`
+    : `
     ${host ? `<div class="flex gap-2 mb-2">${["easy","normal","full"].map(p=>`<button data-preset="${p}" class="flex-1 rounded-xl border-2 py-2 font-bold ${s.preset===p?"bg-indigo-600 text-white border-indigo-600":"bg-white border-slate-300"}">${{easy:"かんたん",normal:"ふつう",full:"フル"}[p]}</button>`).join("")}</div>` : ""}
     ${ROLE_KEYS.filter(k=>k!=="shimin").map(countRow).join("")}
-    <div class="py-1 border-b border-slate-100"><div class="flex items-center justify-between"><span class="text-sm font-bold">${ROLES.shimin.icon} ${ROLES.shimin.name} <span class="text-xs text-slate-400">${ROLES.shimin.team}</span></span><span class="text-sm font-black">自動 ${Math.max(d.shimin,0)}枚</span></div><div class="text-xs font-bold text-indigo-700 mt-0.5">🛠️ 仕事：${ROLES.shimin.job}</div><div class="text-xs text-slate-500">${ROLES.shimin.desc}</div></div>
+    <div class="py-1 border-b border-slate-100"><div class="flex items-center justify-between"><span class="text-sm font-bold">${ROLES.shimin.icon} ${ROLES.shimin.name} <span class="text-xs text-slate-400">${ROLES.shimin.team}</span></span><span class="text-sm font-black">自動 ${Math.max(d.shimin,0)}枚</span></div><div class="text-xs font-bold text-indigo-700 mt-0.5">🛠️ 仕事：${ROLES.shimin.job}</div><div class="text-xs text-slate-500">${ROLES.shimin.desc}</div></div>`}
     <div class="mt-2">${toggle("rapperWin","🎤 ラッパー特殊勝利（DJが投票したら勝ち）")}${toggle("witnessTrap","👀 目撃者の罠（人狼が投票したら人狼勝ち）")}${toggle("gangTrap","🕶️ ギャングの罠（警察に調べられたら人狼勝ち）")}</div>
     <div class="mt-2 border-t border-slate-100 pt-2">${timeInput("daySec","☀️ 昼の議論")}${timeInput("eveningSec","🌇 夕方の議論")}${timeInput("voteSec","🗳️ 投票")}</div>
-    ${!d.ok ? `<p class="text-sm text-rose-600 font-bold mt-2">${d.n<3?"3人以上でスタートできるよ":(s.counts.wolf||0)<1?"人狼を1枚以上入れてね":"役職が多すぎるよ（市民がマイナスになってる）"}</p>` : ""}
+    ${!d.ok ? `<p class="text-sm text-rose-600 font-bold mt-2">${d.n<3?"3人以上でスタートできるよ":(s.mode||"normal")==="random"?"人数に対して役職が多すぎるよ":(s.counts.wolf||0)<1?"人狼を1枚以上入れてね":"役職が多すぎるよ（市民がマイナスになってる）"}</p>` : ""}
     ${host ? `<button id="btnStart" ${d.ok?"":"disabled"} class="w-full mt-3 bg-rose-600 hover:bg-rose-700 disabled:bg-slate-300 text-white font-black rounded-xl py-3 text-lg card-btn">🎮 ゲームスタート</button>`
            : `<p class="text-center text-slate-500 font-bold mt-3">ホストのスタート待ち…</p>`}
   </div>`;
@@ -477,6 +517,16 @@ function resultPanelHTML() {
 // ================= パネルのイベント =================
 function bindPanel(ph) {
   const panel = $("mainPanel");
+  panel.querySelectorAll("[data-mode]").forEach(b => b.addEventListener("click", () => {
+    roomRef.child("settings").update({ mode: b.dataset.mode });
+  }));
+  panel.querySelectorAll("[data-wolfmode]").forEach(b => b.addEventListener("click", () => {
+    roomRef.child("settings").update({ wolfMode: b.dataset.wolfmode });
+  }));
+  panel.querySelectorAll("[data-pool]").forEach(b => b.addEventListener("click", () => {
+    const s = roomData.settings, cur = !s.pool || s.pool[b.dataset.pool] !== false;
+    roomRef.child("settings").update({ [`pool/${b.dataset.pool}`]: !cur });
+  }));
   panel.querySelectorAll("[data-preset]").forEach(b => b.addEventListener("click", () => {
     const counts = presetCounts(b.dataset.preset, playersArr().length);
     if (counts) roomRef.child("settings").update({ preset: b.dataset.preset, counts });
@@ -515,9 +565,21 @@ async function startGame() {
   const arr = playersArr(), s = roomData.settings, d = deckInfo();
   if (!d.ok) return;
   let deck = [];
-  for (const k of ROLE_KEYS) {
-    const cnt = k === "shimin" ? d.shimin : (s.counts[k] || 0);
-    for (let i = 0; i < cnt; i++) deck.push(k);
+  if ((s.mode || "normal") === "random") {
+    const slots = arr.length * 2;
+    const opts = wolfOptions();
+    const wolfN = opts[Math.floor(Math.random() * opts.length)];
+    const pk = shuffle(poolKeys().slice());
+    const specials = pk.slice(0, Math.max(0, Math.min(pk.length, slots - wolfN - 1)));
+    const shiminN = slots - wolfN - specials.length;
+    for (let i = 0; i < wolfN; i++) deck.push("wolf");
+    deck.push(...specials);
+    for (let i = 0; i < shiminN; i++) deck.push("shimin");
+  } else {
+    for (const k of ROLE_KEYS) {
+      const cnt = k === "shimin" ? d.shimin : (s.counts[k] || 0);
+      for (let i = 0; i < cnt; i++) deck.push(k);
+    }
   }
   deck = shuffle(deck);
   const updates = { phase: "choose", phaseStartedAt: Date.now(), result: null };
