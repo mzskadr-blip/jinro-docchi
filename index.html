@@ -438,7 +438,7 @@ function votePanelHTML() {
   const m = me(); const arr = playersArr();
   if (m && m.vote) return `<div class="bg-white rounded-2xl shadow p-4 fade-in"><p class="font-black text-lg">🗳️ 投票済み</p><p class="text-sm text-slate-500">全員が投票したら結果発表だよ。タイマーは警告だけだよ。</p></div>`;
   return `<div class="bg-white rounded-2xl shadow p-4 fade-in"><p class="font-black text-lg mb-1">🗳️ 誰を追放する？</p>
-    <p class="text-sm text-slate-500 mb-3">人狼だと思う人に1票。自分にも投票できるよ（おばけ作戦…？）。</p>
+    <p class="text-sm text-slate-500 mb-3">人狼だと思う人に1票。自分にも投票できるよ。</p>
     <div class="grid grid-cols-2 gap-2">${arr.map(p=>`<button data-vote="${p.id}" class="border-2 border-rose-300 bg-rose-50 rounded-xl py-3 font-bold card-btn">${esc(p.name)}${p.id===myId?"（自分）":""}</button>`).join("")}</div></div>`;
 }
 
@@ -492,7 +492,7 @@ function bindPanel(ph) {
   const force = $("btnForceNext"); if (force) force.addEventListener("click", () => hostAdvance(true));
   panel.querySelectorAll("[data-police-target]").forEach(b => b.addEventListener("click", () => policeAction(b.dataset.policeTarget)));
   panel.querySelectorAll("[data-dj]").forEach(b => b.addEventListener("click", () => djAction(b.dataset.dj)));
-  const djSkip = $("btnDjSkip"); if (djSkip) djSkip.addEventListener("click", () => { roomRef.child(`players/${myId}`).update({ actionDone: true }); });
+  const djSkip = $("btnDjSkip"); if (djSkip) djSkip.addEventListener("click", () => { roomRef.child(`players/${myId}`).update({ actionDone: true }); logMsg("🎧 DJが動いたかも？"); });
   const aftOk = $("btnAftOk"); if (aftOk) aftOk.addEventListener("click", () => roomRef.child(`players/${myId}`).update({ actionDone: true }));
   panel.querySelectorAll("[data-vote]").forEach(b => b.addEventListener("click", () => {
     roomRef.child(`players/${myId}`).update({ vote: b.dataset.vote, voteAt: Date.now() });
