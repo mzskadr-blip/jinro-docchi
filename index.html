@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>人狼ドッチ！オンライン</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<style>
+  body { font-family: "Hiragino Maru Gothic ProN", "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  .card-btn { transition: transform .08s ease, box-shadow .08s ease; }
+  .card-btn:active { transform: scale(.97); }
+  @keyframes pulseWarn { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+  .timer-over { animation: pulseWarn 1s infinite; color: #dc2626 !important; }
+  .timer-warn { color: #ea580c !important; }
+  .fade-in { animation: fadeIn .25s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px);} to { opacity: 1; transform: none; } }
+</style>
+</head>
+<body class="bg-indigo-50 min-h-[100dvh] text-slate-800">
+
+<!-- ===== ロビー ===== -->
+<div id="lobby" class="max-w-md mx-auto p-4 pt-10">
+  <h1 class="text-4xl font-black text-center text-indigo-700 mb-1">🐺 人狼ドッチ！</h1>
+  <p class="text-center text-sm text-slate-500 mb-6">オンライン版 ／ 2枚から“どっち”を選ぶ人狼ゲーム</p>
+  <div class="bg-white rounded-2xl shadow p-5 space-y-4">
+    <div>
+      <label class="text-sm font-bold text-slate-600">ニックネーム</label>
+      <input id="nickname" type="text" maxlength="12" placeholder="名前を入れてね"
+        class="w-full mt-1 border-2 border-indigo-200 rounded-xl px-3 py-2 text-lg focus:outline-none focus:border-indigo-400" />
+    </div>
+    <button id="btnCreate" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl py-3 text-lg card-btn">✨ 新しく部屋をつくる</button>
+    <div class="flex items-center gap-2">
+      <div class="flex-1 border-t border-slate-200"></div><span class="text-xs text-slate-400">または</span><div class="flex-1 border-t border-slate-200"></div>
+    </div>
+    <div class="flex gap-2">
+      <input id="joinCode" type="text" inputmode="numeric" maxlength="4" placeholder="部屋ID（4桁）"
+        class="flex-1 border-2 border-slate-200 rounded-xl px-3 py-2 text-lg text-center tracking-widest focus:outline-none focus:border-indigo-400" />
+      <button id="btnJoin" class="bg-white border-2 border-indigo-600 text-indigo-700 font-bold rounded-xl px-5 card-btn">入室</button>
+    </div>
+    <p id="lobbyMsg" class="text-sm text-rose-600 min-h-[1.25rem]"></p>
+  </div>
+  <div class="bg-white/70 rounded-2xl p-4 mt-4 text-sm leading-relaxed text-slate-600">
+    <p class="font-bold text-slate-700 mb-1">遊び方（1ゲーム約5〜10分）</p>
+    <p>① 1人2枚配られた役職カードから、好きなほうを1枚選ぶ（もう1枚は場へ）</p>
+    <p>② 明け方：人狼の確認と占い　③ 昼：議論3分　④ 昼過ぎ：警察とDJのアクション</p>
+    <p>⑤ 夕方：議論1分 → 投票。追放された人の正体で勝敗が決まるよ</p>
+    <p class="mt-1">⏰ タイマーは警告だけ（自動では進まない）。ボイチャしながら遊ぶ前提だよ。</p>
+  </div>
+</div>
+
+<!-- ===== 部屋 ===== -->
+<div id="room" class="hidden max-w-md mx-auto p-4 pb-24">
+  <div class="flex items-center justify-between mb-2">
+    <h2 class="text-2xl font-black text-indigo-700">🐺 人狼ドッチ！</h2>
+    <div class="flex gap-2">
+      <button id="btnShare" class="bg-white border border-indigo-300 text-indigo-700 text-sm font-bold rounded-full px-3 py-1 card-btn">📤 招待</button>
+      <button id="btnLeave" class="bg-white border border-slate-300 text-slate-500 text-sm font-bold rounded-full px-3 py-1 card-btn">退室</button>
+    </div>
+  </div>
+  <div class="flex items-center gap-2 mb-3">
+    <span class="bg-indigo-600 text-white text-sm font-bold rounded-full px-3 py-1">部屋ID: <span id="roomCodeLabel"></span></span>
+    <span id="phaseLabel" class="bg-white border border-indigo-200 text-indigo-700 text-sm font-bold rounded-full px-3 py-1"></span>
+    <span id="timerBadge" class="hidden bg-white border border-slate-300 text-slate-700 text-sm font-black rounded-full px-3 py-1"></span>
+  </div>
+
+  <div id="playersBar" class="flex flex-wrap gap-1 mb-3"></div>
+
+  <div id="mainPanel" class="space-y-3"></div>
+
+  <div class="bg-white rounded-2xl shadow p-4 mt-3">
+    <p class="text-sm font-bold text-slate-500 mb-2">📜 進行ログ</p>
+    <div id="logBox" class="space-y-1 text-sm max-h-40 overflow-y-auto"></div>
+  </div>
+</div>
+
+<script>
+// ================= Firebase =================
+// __FIREBASE_CONFIG__ （あとで実際の値に差し替える）
+const firebaseConfig = {
+  apiKey: "AIzaSyBcTMPLrLaPJzj18O3NUA5_PYPWeTZwGqk",
+  authDomain: "jinrodocchi.firebaseapp.com",
+  databaseURL: "https://jinrodocchi-default-rtdb.firebaseio.com",
+  projectId: "jinrodocchi",
+  storageBucket: "jinrodocchi.firebasestorage.app",
+  messagingSenderId: "726003073933",
+  appId: "1:726003073933:web:6c69d1c894d0466e11f3c4"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+// ================= 役職定義 =================
+const ROLES = {
+  wolf:     { name: "人狼",         icon: "🐺", team: "人狼チーム", color: "bg-rose-100 border-rose-300",    desc: "仲間の人狼が分かる。市民を追放させれば勝ち。" },
+  uragiri:  { name: "裏切り者",     icon: "🗡️", team: "人狼チーム", color: "bg-rose-50 border-rose-200",     desc: "能力なし。人狼チーム。人狼を守るように立ち回ろう。" },
+  gang:     { name: "ギャングのボス", icon: "🕶️", team: "人狼チーム", color: "bg-rose-50 border-rose-200",   desc: "警察に調べられると人狼チームの即勝利になる罠役職。" },
+  shimin:   { name: "市民",         icon: "🧑", team: "市民チーム", color: "bg-sky-50 border-sky-200",       desc: "能力なし。人狼を追放すれば勝ち。" },
+  uranai:   { name: "占い師",       icon: "🔮", team: "市民チーム", color: "bg-violet-50 border-violet-300", desc: "明け方に1人の役職を確認できる。" },
+  keisatsu: { name: "警察",         icon: "🚓", team: "市民チーム", color: "bg-blue-50 border-blue-300",     desc: "昼過ぎに1人の「配られた2枚のどちらか」を確認できる。" },
+  dj:       { name: "DJ",           icon: "🎧", team: "市民チーム", color: "bg-amber-50 border-amber-300",   desc: "昼過ぎに1人の役職を、選ばれなかったほうに入れ替える。" },
+  mokugeki: { name: "目撃者",       icon: "👀", team: "市民チーム", color: "bg-teal-50 border-teal-300",     desc: "明け方に人狼全員が分かる。人狼に投票されると人狼チームの勝ち。" },
+  obake:    { name: "おばけ",       icon: "👻", team: "単独",       color: "bg-slate-100 border-slate-300",  desc: "自分が追放されたら単独勝利。" },
+  rapper:   { name: "ラッパー",     icon: "🎤", team: "単独",       color: "bg-lime-50 border-lime-300",     desc: "DJに投票されたら単独勝利。" }
+};
+const ROLE_KEYS = Object.keys(ROLES);
+const TEAM_WIN_TEXT = { citizen: "🎉 市民チームの勝ち！", wolf: "🐺 人狼チームの勝ち！", obake: "👻 おばけの単独勝利！", rapper: "🎤 ラッパーの単独勝利！" };
+
+function defaultSettings() {
+  return {
+    preset: "normal",
+    counts: { wolf: 1, uragiri: 1, gang: 0, uranai: 1, keisatsu: 1, dj: 1, mokugeki: 0, obake: 1, rapper: 0 },
+    rapperWin: true, witnessTrap: true, gangTrap: true,
+    daySec: 180, eveningSec: 60, voteSec: 60
+  };
+}
+function presetCounts(name, nPlayers) {
+  const w = nPlayers >= 7 ? 3 : (nPlayers >= 5 ? 2 : 1);
+  if (name === "easy")   return { wolf: 1, uragiri: 1, gang: 0, uranai: 1, keisatsu: 0, dj: 0, mokugeki: 0, obake: 1, rapper: 0 };
+  if (name === "normal") return { wolf: nPlayers >= 6 ? 2 : 1, uragiri: 1, gang: 0, uranai: 1, keisatsu: 1, dj: 1, mokugeki: 0, obake: 1, rapper: 0 };
+  if (name === "full")   return { wolf: w, uragiri: 2, gang: 1, uranai: 1, keisatsu: 1, dj: 1, mokugeki: 1, obake: 1, rapper: 1 };
+  return null;
+}
+
+// ================= 状態 =================
+let myId = localStorage.getItem("jinro_pid") || "";
+if (!myId) { myId = "p" + Math.random().toString(36).slice(2, 10); localStorage.setItem("jinro_pid", myId); }
+let roomId = null, roomRef = null, roomData = null, myName = "";
+let timerInt = null;
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+function playersArr() {
+  if (!roomData || !roomData.players) return [];
+  return Object.entries(roomData.players).map(([id, p]) => ({ id, ...p })).sort((a, b) => (a.joinedAt || 0) - (b.joinedAt || 0));
+}
+function me() { return roomData && roomData.players ? roomData.players[myId] : null; }
+function isHost() { return roomData && roomData.hostId === myId; }
+function logMsg(text) {
+  if (!roomRef) return;
+  roomRef.child("log").push({ text, ts: firebase.database.ServerValue.TIMESTAMP });
+}
+function phaseName(ph) {
+  return { lobby: "待機中", choose: "役職えらび", dawn: "🌅 明け方", day: "☀️ 昼の議論", afternoon: "🌤️ 昼過ぎ", evening: "🌇 夕方の議論", vote: "🗳️ 投票", result: "結果" }[ph] || ph;
+}
+
+// ================= ロビー =================
+function lobbyError(t) { $("lobbyMsg").textContent = t; }
+function getName() {
+  const n = $("nickname").value.trim();
+  if (!n) { lobbyError("ニックネームを入れてね"); return null; }
+  return n;
+}
+function newRoomCode() { return String(Math.floor(1000 + Math.random() * 9000)); }
+
+$("btnCreate").addEventListener("click", async () => {
+  const name = getName(); if (!name) return;
+  myName = name;
+  let code = newRoomCode();
+  for (let i = 0; i < 10; i++) {
+    const snap = await db.ref("jinroRooms/" + code).once("value");
+    if (!snap.exists()) break;
+    code = newRoomCode();
+  }
+  const settings = defaultSettings();
+  await db.ref("jinroRooms/" + code).set({
+    createdAt: firebase.database.ServerValue.TIMESTAMP,
+    hostId: myId, phase: "lobby", phaseStartedAt: 0, settings,
+    players: { [myId]: { name, joinedAt: Date.now() } }
+  });
+  enterRoom(code);
+  setTimeout(() => logMsg(`🏠 ${name} が部屋を作ったよ`), 400);
+});
+
+$("btnJoin").addEventListener("click", async () => {
+  const name = getName(); if (!name) return;
+  const code = $("joinCode").value.trim();
+  if (!/^\d{4}$/.test(code)) { lobbyError("部屋IDは4桁の数字だよ"); return; }
+  const snap = await db.ref("jinroRooms/" + code).once("value");
+  if (!snap.exists()) { lobbyError("その部屋が見つからないよ"); return; }
+  const data = snap.val();
+  if (data.phase && data.phase !== "lobby" && !(data.players && data.players[myId])) { lobbyError("その部屋はゲーム中だよ"); return; }
+  myName = name;
+  if (!(data.players && data.players[myId])) {
+    await db.ref(`jinroRooms/${code}/players/${myId}`).set({ name, joinedAt: Date.now() });
+  }
+  enterRoom(code);
+  setTimeout(() => logMsg(`👋 ${name} が入室したよ`), 400);
+});
+
+// 古い部屋の掃除（24時間以上）
+(async () => {
+  try {
+    const snap = await db.ref("jinroRooms").once("value");
+    const now = Date.now();
+    snap.forEach((ch) => { const v = ch.val(); if (v.createdAt && now - v.createdAt > 24 * 3600 * 1000) ch.ref.remove(); });
+  } catch (e) { /* ignore */ }
+})();
+
+// 招待リンク
+const urlRoom = new URLSearchParams(location.search).get("room");
+if (urlRoom && /^\d{4}$/.test(urlRoom)) $("joinCode").value = urlRoom;
+const savedName = localStorage.getItem("jinro_name");
+if (savedName) $("nickname").value = savedName;
+// ================= 部屋 =================
+function enterRoom(code) {
+  roomId = code;
+  localStorage.setItem("jinro_name", myName);
+  roomRef = db.ref("jinroRooms/" + code);
+  $("lobby").classList.add("hidden");
+  $("room").classList.remove("hidden");
+  $("roomCodeLabel").textContent = code;
+  roomRef.on("value", (snap) => {
+    roomData = snap.val();
+    if (!roomData) { backToLobby("部屋が閉じられたよ"); return; }
+    render();
+    hostAdvance();
+  });
+}
+function backToLobby(msg) {
+  if (roomRef) roomRef.off();
+  roomRef = null; roomData = null; roomId = null;
+  $("room").classList.add("hidden");
+  $("lobby").classList.remove("hidden");
+  if (msg) lobbyError(msg);
+  stopTimer();
+}
+$("btnLeave").addEventListener("click", async () => {
+  if (!roomRef) return;
+  const wasHost = isHost();
+  const ref = roomRef, code = roomId;
+  await ref.child("players/" + myId).remove();
+  if (wasHost) {
+    const snap = await ref.child("players").once("value");
+    if (snap.exists()) {
+      const first = Object.keys(snap.val()).sort((a, b) => (snap.val()[a].joinedAt || 0) - (snap.val()[b].joinedAt || 0))[0];
+      await ref.update({ hostId: first });
+      ref.child("log").push({ text: "👑 ホストが交代したよ", ts: firebase.database.ServerValue.TIMESTAMP });
+    } else { await ref.remove(); }
+  }
+  backToLobby("");
+});
+$("btnShare").addEventListener("click", async () => {
+  const url = `${location.origin}${location.pathname}?room=${roomId}`;
+  const text = `🐺人狼ドッチに招待！部屋IDは ${roomId} だよ`;
+  if (navigator.share) { try { await navigator.share({ title: "人狼ドッチ！オンライン", text, url }); return; } catch (e) { /* fallthrough */ } }
+  try { await navigator.clipboard.writeText(`${text}\n${url}`); alert("招待文をコピーしたよ"); }
+  catch (e) { prompt("このリンクを送ってね", url); }
+});
+
+// ================= タイマー（警告のみ・自動で進まない） =================
+function stopTimer() { if (timerInt) { clearInterval(timerInt); timerInt = null; } $("timerBadge").classList.add("hidden"); }
+function startTimer() {
+  stopTimer();
+  const ph = roomData.phase;
+  const dur = ph === "day" ? roomData.settings.daySec : ph === "evening" ? roomData.settings.eveningSec : ph === "vote" ? roomData.settings.voteSec : 0;
+  if (!dur || !roomData.phaseStartedAt) return;
+  const badge = $("timerBadge");
+  badge.classList.remove("hidden");
+  const tick = () => {
+    if (!roomData || roomData.phase !== ph) { stopTimer(); return; }
+    const remain = Math.round((roomData.phaseStartedAt + dur * 1000 - Date.now()) / 1000);
+    badge.classList.remove("timer-over", "timer-warn");
+    if (remain <= 0) { badge.textContent = "⏰ 0:00（時間だよ！）"; badge.classList.add("timer-over"); }
+    else {
+      badge.textContent = `⏰ ${Math.floor(remain / 60)}:${String(remain % 60).padStart(2, "0")}`;
+      if (remain <= 30) badge.classList.add("timer-warn");
+    }
+  };
+  tick();
+  timerInt = setInterval(tick, 250);
+}
+
+// ================= 描画 =================
+function render() {
+  if (!roomData) return;
+  $("phaseLabel").textContent = phaseName(roomData.phase);
+  const arr = playersArr();
+  $("playersBar").innerHTML = arr.map((p) => {
+    let mark = "";
+    if (p.id === roomData.hostId) mark += " 👑";
+    if (roomData.phase === "choose") mark += p.chosen ? " ✅" : " …";
+    if (roomData.phase === "dawn" || roomData.phase === "afternoon") mark += p.actionDone ? " ✅" : " …";
+    if (roomData.phase === "day" || roomData.phase === "evening") mark += p.ready ? " ✅" : "";
+    if (roomData.phase === "vote") mark += p.vote ? " 🗳️" : " …";
+    const mine = p.id === myId ? "border-indigo-500 bg-indigo-100" : "border-slate-200 bg-white";
+    return `<span class="border ${mine} rounded-full px-3 py-1 text-sm font-bold">${esc(p.name)}${mark}</span>`;
+  }).join("");
+  const logs = roomData.log ? Object.values(roomData.log).sort((a, b) => (a.ts || 0) - (b.ts || 0)).slice(-30) : [];
+  $("logBox").innerHTML = logs.map((l) => `<div class="border-b border-slate-100 pb-1">${esc(l.text)}</div>`).join("");
+  $("logBox").scrollTop = $("logBox").scrollHeight;
+
+  const panel = $("mainPanel");
+  const ph = roomData.phase;
+  if (ph === "lobby") panel.innerHTML = lobbyPanelHTML();
+  else if (ph === "choose") panel.innerHTML = choosePanelHTML();
+  else if (ph === "dawn") panel.innerHTML = dawnPanelHTML();
+  else if (ph === "day" || ph === "evening") panel.innerHTML = discussPanelHTML(ph);
+  else if (ph === "afternoon") panel.innerHTML = afternoonPanelHTML();
+  else if (ph === "vote") panel.innerHTML = votePanelHTML();
+  else if (ph === "result") panel.innerHTML = resultPanelHTML();
+  bindPanel(ph);
+  if (ph === "day" || ph === "evening" || ph === "vote") startTimer(); else stopTimer();
+}
+
+function roleCardHTML(key, extra = "") {
+  const r = ROLES[key];
+  return `<div class="border-2 ${r.color} rounded-2xl p-3 ${extra}">
+    <div class="text-3xl">${r.icon}</div>
+    <div class="font-black text-lg">${r.name}</div>
+    <div class="text-xs font-bold text-slate-500">${r.team}</div>
+    <div class="text-xs text-slate-600 mt-1">${r.desc}</div></div>`;
+}
+
+// ---- ロビー（設定） ----
+function deckInfo() {
+  const n = playersArr().length;
+  const s = roomData.settings;
+  let others = 0;
+  for (const k of ROLE_KEYS) if (k !== "shimin") others += (s.counts[k] || 0);
+  const shimin = n * 2 - others;
+  return { n, others, shimin, ok: n >= 3 && shimin >= 0 && (s.counts.wolf || 0) >= 1 };
+}
+function lobbyPanelHTML() {
+  const s = roomData.settings, d = deckInfo(), host = isHost();
+  const countRow = (key) => {
+    const r = ROLES[key];
+    const v = s.counts[key] || 0;
+    const max = key === "wolf" ? 3 : key === "uragiri" ? 2 : 1;
+    const btns = host ? `<span class="flex gap-1">${[0,1,2,3].filter(x=>x<=max).map(x=>`<button data-count="${key}:${x}" class="w-8 h-8 rounded-full border-2 font-bold ${x===v?"bg-indigo-600 text-white border-indigo-600":"bg-white border-slate-300"}">${x}</button>`).join("")}</span>` : `<span class="font-black">${v}枚</span>`;
+    return `<div class="flex items-center justify-between py-1 border-b border-slate-100"><span class="text-sm font-bold">${r.icon} ${r.name} <span class="text-xs text-slate-400">${r.team}</span></span>${btns}</div>`;
+  };
+  const toggle = (key, label) => `<label class="flex items-center justify-between py-1 text-sm font-bold"><span>${label}</span><input type="checkbox" data-toggle="${key}" ${s[key]?"checked":""} ${host?"":"disabled"} class="w-5 h-5 accent-indigo-600"></label>`;
+  const timeInput = (key, label) => `<label class="flex items-center justify-between py-1 text-sm font-bold"><span>${label}</span><span><input type="number" data-time="${key}" value="${Math.round(s[key]/60*10)/10}" min="0" step="0.5" ${host?"":"disabled"} class="w-20 border-2 border-slate-200 rounded-lg px-2 py-1 text-right"> 分</span></label>`;
+  return `<div class="bg-white rounded-2xl shadow p-4 fade-in">
+    <p class="font-black text-lg mb-1">⚙️ ゲーム設定 ${host ? "（ホストが変更できるよ）" : "（ホストが設定中…）"}</p>
+    <p class="text-sm text-slate-500 mb-2">参加者 ${d.n}人 ／ カード合計 ${d.n*2}枚（1人2枚）／ 市民は自動で <b>${Math.max(d.shimin,0)}枚</b></p>
+    ${host ? `<div class="flex gap-2 mb-2">${["easy","normal","full"].map(p=>`<button data-preset="${p}" class="flex-1 rounded-xl border-2 py-2 font-bold ${s.preset===p?"bg-indigo-600 text-white border-indigo-600":"bg-white border-slate-300"}">${{easy:"かんたん",normal:"ふつう",full:"フル"}[p]}</button>`).join("")}</div>` : ""}
+    ${ROLE_KEYS.filter(k=>k!=="shimin").map(countRow).join("")}
+    <div class="mt-2">${toggle("rapperWin","🎤 ラッパー特殊勝利（DJが投票したら勝ち）")}${toggle("witnessTrap","👀 目撃者の罠（人狼が投票したら人狼勝ち）")}${toggle("gangTrap","🕶️ ギャングの罠（警察に調べられたら人狼勝ち）")}</div>
+    <div class="mt-2 border-t border-slate-100 pt-2">${timeInput("daySec","☀️ 昼の議論")}${timeInput("eveningSec","🌇 夕方の議論")}${timeInput("voteSec","🗳️ 投票")}</div>
+    ${!d.ok ? `<p class="text-sm text-rose-600 font-bold mt-2">${d.n<3?"3人以上でスタートできるよ":(s.counts.wolf||0)<1?"人狼を1枚以上入れてね":"役職が多すぎるよ（市民がマイナスになってる）"}</p>` : ""}
+    ${host ? `<button id="btnStart" ${d.ok?"":"disabled"} class="w-full mt-3 bg-rose-600 hover:bg-rose-700 disabled:bg-slate-300 text-white font-black rounded-xl py-3 text-lg card-btn">🎮 ゲームスタート</button>`
+           : `<p class="text-center text-slate-500 font-bold mt-3">ホストのスタート待ち…</p>`}
+  </div>`;
+}
+
+// ---- 役職えらび ----
+function choosePanelHTML() {
+  const m = me(); if (!m) return "";
+  if (!m.cards) return `<div class="bg-white rounded-2xl shadow p-4">配布待ち…</div>`;
+  if (m.chosen) return `<div class="bg-white rounded-2xl shadow p-4 fade-in"><p class="font-black mb-2">あなたの役職はこれ！（他の人には内緒）</p>${roleCardHTML(m.chosen)}<p class="text-sm text-slate-500 mt-2">全員が選び終わるのを待ってるよ…</p></div>`;
+  return `<div class="bg-white rounded-2xl shadow p-4 fade-in"><p class="font-black text-lg mb-1">どっちで勝負する？</p><p class="text-sm text-slate-500 mb-3">好きなほうを1枚選んでね。選ばなかったほうは場に置かれるよ。</p>
+    <div class="grid grid-cols-2 gap-3">${m.cards.map((c)=>`<button data-choose="${c}" class="text-left card-btn">${roleCardHTML(c)}</button>`).join("")}</div></div>`;
+}
+
+// ---- 明け方 ----
+function dawnPanelHTML() {
+  const m = me(); if (!m || !m.role) return `<div class="bg-white rounded-2xl shadow p-4">…</div>`;
+  const arr = playersArr();
+  let inner = `<p class="font-black mb-2">🌅 明け方 ／ あなたの役職：${ROLES[m.role].icon} ${ROLES[m.role].name}</p>`;
+  if (m.actionDone) inner += `<p class="text-sm text-slate-500">確認ずみ。みんなの確認を待ってるよ…</p>`;
+  else if (m.role === "wolf") {
+    const mates = arr.filter(p => p.role === "wolf" && p.id !== myId).map(p => esc(p.name));
+    inner += `<p class="text-sm mb-3">仲間の人狼：<b>${mates.length ? mates.join("、") : "いない（あなただけ）"}</b></p><button id="btnDawnOk" class="w-full bg-indigo-600 text-white font-bold rounded-xl py-3 card-btn">確認した</button>`;
+  } else if (m.role === "mokugeki") {
+    const wolves = arr.filter(p => p.role === "wolf").map(p => esc(p.name));
+    inner += `<p class="text-sm mb-3">目撃情報：人狼は <b>${wolves.length ? wolves.join("、") : "いない"}</b> だよ。ただし人狼に投票されると負けちゃう、気をつけて。</p><button id="btnDawnOk" class="w-full bg-indigo-600 text-white font-bold rounded-xl py-3 card-btn">確認した</button>`;
+  } else if (m.role === "uranai") {
+    inner += m.seerResult
+      ? `<p class="text-sm mb-3">占い結果：<b>${esc(m.seerTargetName)} さんは ${ROLES[m.seerResult].icon} ${ROLES[m.seerResult].name}</b> だったよ</p><button id="btnDawnOk" class="w-full bg-indigo-600 text-white font-bold rounded-xl py-3 card-btn">確認した</button>`
+      : `<p class="text-sm font-bold mb-2">占いたい人を選んでね</p><div class="grid grid-cols-2 gap-2">${arr.filter(p=>p.id!==myId).map(p=>`<button data-seer="${p.id}" class="border-2 border-violet-300 bg-violet-50 rounded-xl py-2 font-bold card-btn">${esc(p.name)}</button>`).join("")}</div>`;
+  } else {
+    inner += `<p class="text-sm mb-3">あなたに明け方のアクションはないよ。能力者たちが動いているみたい…</p><button id="btnDawnOk" class="w-full bg-indigo-600 text-white font-bold rounded-xl py-3 card-btn">確認した</button>`;
+  }
+  return `<div class="bg-white rounded-2xl shadow p-4 fade-in">${inner}</div>`;
+}
+
+// ---- 議論 ----
+function discussPanelHTML(ph) {
+  const m = me();
+  const title = ph === "day" ? "☀️ 昼の議論" : "🌇 夕方の議論（最後の議論だよ）";
+  return `<div class="bg-white rounded-2xl shadow p-4 fade-in">
+    <p class="font-black text-lg">${title}</p>
+    <p class="text-sm text-slate-500 mb-1">ボイチャで話し合ってね。タイマーは警告だけ、自動では進まないよ。</p>
+    <p class="text-sm mb-3">あなたの役職：<b>${m && m.role ? ROLES[m.role].icon + " " + ROLES[m.role].name : "？"}</b></p>
+    ${m && m.ready ? `<p class="font-bold text-emerald-600">✅ 話し終わり登録ずみ。みんなを待ってるよ…</p>`
+      : `<button id="btnReady" class="w-full bg-emerald-600 text-white font-bold rounded-xl py-3 card-btn">話し終わった！</button>`}
+    ${isHost() ? `<button id="btnForceNext" class="w-full mt-2 bg-white border-2 border-slate-300 text-slate-600 font-bold rounded-xl py-2 card-btn">ホスト：全員を待たずに次へ</button>` : ""}
+  </div>`;
+}
+
+// ---- 昼過ぎ ----
+function afternoonPanelHTML() {
+  const m = me(); if (!m || !m.role) return `<div class="bg-white rounded-2xl shadow p-4">…</div>`;
+  const arr = playersArr();
+  let inner = `<p class="font-black mb-2">🌤️ 昼過ぎ ／ あなたの役職：${ROLES[m.role].icon} ${ROLES[m.role].name}</p>`;
+  if (m.actionDone) {
+    inner += `<p class="text-sm text-slate-500">アクション済み。みんなを待ってるよ…</p>`;
+    if (m.role === "keisatsu" && m.policeResult) inner += `<p class="text-sm mt-2">調査結果：<b>${esc(m.policeTargetName)} さんに配られた${m.policeCardIdx+1}枚目は ${ROLES[m.policeResult].icon} ${ROLES[m.policeResult].name}</b> だったよ（本人が選んだ役職とは限らないよ）</p>`;
+  } else if (m.role === "keisatsu") {
+    if (!m.policeStage) {
+      inner += `<p class="text-sm font-bold mb-2">調べたい人を選んでね</p><div class="grid grid-cols-2 gap-2">${arr.filter(p=>p.id!==myId).map(p=>`<button data-police-target="${p.id}" class="border-2 border-blue-300 bg-blue-50 rounded-xl py-2 font-bold card-btn">${esc(p.name)}</button>`).join("")}</div>`;
+    } else {
+      inner += `<p class="text-sm font-bold mb-2">${esc(m.policeTargetName)} さんに配られた、どっちのカードを調べる？</p><div class="grid grid-cols-2 gap-2">
+        <button data-police-card="0" class="border-2 border-blue-300 bg-blue-50 rounded-xl py-3 font-bold card-btn">1枚目を調べる</button>
+        <button data-police-card="1" class="border-2 border-blue-300 bg-blue-50 rounded-xl py-3 font-bold card-btn">2枚目を調べる</button></div>
+        <p class="text-xs text-rose-600 mt-2 font-bold">⚠️ もしそれがギャングのボスだったら、その場で人狼チームの勝ちになっちゃうよ</p>`;
+    }
+  } else if (m.role === "dj") {
+    inner += `<p class="text-sm font-bold mb-2">役職を入れ替えたい人を選んでね（その人の役職が、選ばれなかったほうに変わるよ。本人も気づかない）</p>
+      <div class="grid grid-cols-2 gap-2">${arr.filter(p=>p.id!==myId).map(p=>`<button data-dj="${p.id}" class="border-2 border-amber-300 bg-amber-50 rounded-xl py-2 font-bold card-btn">${esc(p.name)}</button>`).join("")}</div>
+      <button id="btnDjSkip" class="w-full mt-2 bg-white border-2 border-slate-300 text-slate-600 font-bold rounded-xl py-2 card-btn">入れ替えない</button>`;
+  } else {
+    inner += `<p class="text-sm mb-3">あなたに昼過ぎのアクションはないよ。警察とDJが動いているみたい…</p><button id="btnAftOk" class="w-full bg-indigo-600 text-white font-bold rounded-xl py-3 card-btn">確認した</button>`;
+  }
+  if (isHost()) inner += `<button id="btnForceNext" class="w-full mt-3 bg-white border-2 border-slate-300 text-slate-500 font-bold rounded-xl py-2 card-btn">ホスト：次へ進める</button>`;
+  return `<div class="bg-white rounded-2xl shadow p-4 fade-in">${inner}</div>`;
+}
+
+// ---- 投票 ----
+function votePanelHTML() {
+  const m = me(); const arr = playersArr();
+  if (m && m.vote) return `<div class="bg-white rounded-2xl shadow p-4 fade-in"><p class="font-black text-lg">🗳️ 投票済み</p><p class="text-sm text-slate-500">全員が投票したら結果発表だよ。タイマーは警告だけだよ。</p></div>`;
+  return `<div class="bg-white rounded-2xl shadow p-4 fade-in"><p class="font-black text-lg mb-1">🗳️ 誰を追放する？</p>
+    <p class="text-sm text-slate-500 mb-3">人狼だと思う人に1票。自分にも投票できるよ（おばけ作戦…？）。</p>
+    <div class="grid grid-cols-2 gap-2">${arr.map(p=>`<button data-vote="${p.id}" class="border-2 border-rose-300 bg-rose-50 rounded-xl py-3 font-bold card-btn">${esc(p.name)}${p.id===myId?"（自分）":""}</button>`).join("")}</div></div>`;
+}
+
+// ---- 結果 ----
+function resultPanelHTML() {
+  const r = roomData.result; if (!r) return `<div class="bg-white rounded-2xl shadow p-4">集計中…</div>`;
+  const arr = playersArr();
+  const nameOf = (id) => { const p = arr.find(x=>x.id===id); return p ? p.name : "？"; };
+  const votesHtml = arr.map(p => `<div class="text-sm border-b border-slate-100 py-1">${esc(p.name)} → <b>${esc(nameOf(p.vote))}</b></div>`).join("");
+  const rolesHtml = arr.map(p => `<div class="flex justify-between text-sm border-b border-slate-100 py-1"><span class="font-bold">${esc(p.name)}${p.id===r.exiledId?" 🚪追放":""}</span><span>${p.role?ROLES[p.role].icon+" "+ROLES[p.role].name:"？" } <span class="text-slate-400">(場: ${p.discard?ROLES[p.discard].name:"-"})</span></span></div>`).join("");
+  return `<div class="bg-white rounded-2xl shadow p-4 fade-in">
+    <p class="text-2xl font-black text-center mb-1">${TEAM_WIN_TEXT[r.winner] || r.winner}</p>
+    <p class="text-sm text-center text-slate-600 mb-3">${esc(r.reason)}</p>
+    <p class="font-bold text-sm text-slate-500">投票の内訳</p>${votesHtml}
+    <p class="font-bold text-sm text-slate-500 mt-3">みんなの正体</p>${rolesHtml}
+    ${isHost() ? `<button id="btnAgain" class="w-full mt-4 bg-indigo-600 text-white font-black rounded-xl py-3 card-btn">🔁 設定に戻ってもう1ゲーム</button>` : `<p class="text-center text-slate-500 font-bold mt-4">ホストが次のゲームを始めるのを待ってるよ</p>`}
+  </div>`;
+}
+// ================= パネルのイベント =================
+function bindPanel(ph) {
+  const panel = $("mainPanel");
+  panel.querySelectorAll("[data-preset]").forEach(b => b.addEventListener("click", () => {
+    const counts = presetCounts(b.dataset.preset, playersArr().length);
+    if (counts) roomRef.child("settings").update({ preset: b.dataset.preset, counts });
+  }));
+  panel.querySelectorAll("[data-count]").forEach(b => b.addEventListener("click", () => {
+    const [key, val] = b.dataset.count.split(":");
+    roomRef.child("settings").update({ preset: "custom", [`counts/${key}`]: Number(val) });
+  }));
+  panel.querySelectorAll("[data-toggle]").forEach(c => c.addEventListener("change", () => {
+    roomRef.child("settings").update({ [c.dataset.toggle]: c.checked });
+  }));
+  panel.querySelectorAll("[data-time]").forEach(inp => inp.addEventListener("change", () => {
+    const min = Math.max(0, Number(inp.value) || 0);
+    roomRef.child("settings").update({ [inp.dataset.time]: Math.round(min * 60) });
+  }));
+  const start = $("btnStart"); if (start) start.addEventListener("click", startGame);
+  panel.querySelectorAll("[data-choose]").forEach(b => b.addEventListener("click", () => chooseRole(b.dataset.choose)));
+  const dawnOk = $("btnDawnOk"); if (dawnOk) dawnOk.addEventListener("click", () => roomRef.child(`players/${myId}`).update({ actionDone: true }));
+  panel.querySelectorAll("[data-seer]").forEach(b => b.addEventListener("click", () => seerAction(b.dataset.seer)));
+  const ready = $("btnReady"); if (ready) ready.addEventListener("click", () => roomRef.child(`players/${myId}`).update({ ready: true }));
+  const force = $("btnForceNext"); if (force) force.addEventListener("click", () => hostAdvance(true));
+  panel.querySelectorAll("[data-police-target]").forEach(b => b.addEventListener("click", () => {
+    const t = playersArr().find(p => p.id === b.dataset.policeTarget);
+    roomRef.child(`players/${myId}`).update({ policeStage: 1, policeTarget: b.dataset.policeTarget, policeTargetName: t ? t.name : "" });
+  }));
+  panel.querySelectorAll("[data-police-card]").forEach(b => b.addEventListener("click", () => policeAction(Number(b.dataset.policeCard))));
+  panel.querySelectorAll("[data-dj]").forEach(b => b.addEventListener("click", () => djAction(b.dataset.dj)));
+  const djSkip = $("btnDjSkip"); if (djSkip) djSkip.addEventListener("click", () => { roomRef.child(`players/${myId}`).update({ actionDone: true }); logMsg("🎧 DJは入れ替えなかったみたい"); });
+  const aftOk = $("btnAftOk"); if (aftOk) aftOk.addEventListener("click", () => roomRef.child(`players/${myId}`).update({ actionDone: true }));
+  panel.querySelectorAll("[data-vote]").forEach(b => b.addEventListener("click", () => {
+    roomRef.child(`players/${myId}`).update({ vote: b.dataset.vote, voteAt: Date.now() });
+  }));
+  const again = $("btnAgain"); if (again) again.addEventListener("click", resetToLobby);
+}
+
+// ================= ゲーム進行 =================
+function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+
+async function startGame() {
+  const arr = playersArr(), s = roomData.settings, d = deckInfo();
+  if (!d.ok) return;
+  let deck = [];
+  for (const k of ROLE_KEYS) {
+    const cnt = k === "shimin" ? d.shimin : (s.counts[k] || 0);
+    for (let i = 0; i < cnt; i++) deck.push(k);
+  }
+  deck = shuffle(deck);
+  const updates = { phase: "choose", phaseStartedAt: Date.now(), result: null };
+  arr.forEach((p, i) => {
+    updates[`players/${p.id}/cards`] = [deck[i * 2], deck[i * 2 + 1]];
+    updates[`players/${p.id}/chosen`] = null;
+    updates[`players/${p.id}/role`] = null;
+    updates[`players/${p.id}/discard`] = null;
+    updates[`players/${p.id}/ready`] = false;
+    updates[`players/${p.id}/actionDone`] = false;
+    updates[`players/${p.id}/vote`] = null;
+    updates[`players/${p.id}/voteAt`] = 0;
+    updates[`players/${p.id}/seerResult`] = null;
+    updates[`players/${p.id}/seerTargetName`] = null;
+    updates[`players/${p.id}/policeStage`] = 0;
+    updates[`players/${p.id}/policeTarget`] = null;
+    updates[`players/${p.id}/policeTargetName`] = null;
+    updates[`players/${p.id}/policeCardIdx`] = null;
+    updates[`players/${p.id}/policeResult`] = null;
+  });
+  await roomRef.update(updates);
+  logMsg("🎮 ゲームスタート！ 2枚から役職を選んでね");
+}
+
+function chooseRole(key) {
+  const m = me(); if (!m || !m.cards) return;
+  const disc = (m.cards[0] === key) ? m.cards[1] : m.cards[0];
+  roomRef.child(`players/${myId}`).update({ chosen: key, role: key, discard: disc });
+}
+function seerAction(targetId) {
+  const t = playersArr().find(p => p.id === targetId); if (!t) return;
+  roomRef.child(`players/${myId}`).update({ seerResult: t.role, seerTargetName: t.name });
+}
+async function policeAction(cardIdx) {
+  const m = me(); if (!m || !m.policeTarget) return;
+  const t = playersArr().find(p => p.id === m.policeTarget); if (!t || !t.cards) return;
+  const card = t.cards[cardIdx];
+  await roomRef.child(`players/${myId}`).update({ policeCardIdx: cardIdx, policeResult: card, actionDone: true });
+  logMsg("🚓 警察が誰かを調べたよ");
+  if (card === "gang" && roomData.settings.gangTrap) {
+    await roomRef.update({ phase: "result", phaseStartedAt: Date.now(),
+      result: { winner: "wolf", reason: "🚓 警察がギャングのボスを調べちゃった！罠にかかって人狼チームの勝ち", exiledId: null } });
+    logMsg("🕶️ 罠発動！警察がギャングのボスを調べてしまった");
+  }
+}
+async function djAction(targetId) {
+  const t = playersArr().find(p => p.id === targetId); if (!t) return;
+  await roomRef.child(`players/${targetId}`).update({ role: t.discard, discard: t.role });
+  await roomRef.child(`players/${myId}`).update({ actionDone: true });
+  logMsg("🎧 DJが誰かの役職を入れ替えたみたい…");
+}
+async function resetToLobby() {
+  const arr = playersArr();
+  const updates = { phase: "lobby", phaseStartedAt: 0, result: null };
+  arr.forEach(p => {
+    updates[`players/${p.id}/cards`] = null; updates[`players/${p.id}/chosen`] = null;
+    updates[`players/${p.id}/role`] = null; updates[`players/${p.id}/discard`] = null;
+    updates[`players/${p.id}/ready`] = false; updates[`players/${p.id}/actionDone`] = false;
+    updates[`players/${p.id}/vote`] = null;
+  });
+  await roomRef.update(updates);
+  logMsg("🔁 設定に戻ったよ");
+}
+
+// ホストだけがフェイズを進める
+let advancing = false;
+async function hostAdvance(force = false) {
+  if (!isHost() || !roomData || advancing) return;
+  const arr = playersArr(); if (!arr.length) return;
+  const ph = roomData.phase;
+  const all = (fn) => arr.every(fn);
+  let next = null;
+  if (ph === "choose" && all(p => p.chosen)) next = "dawn";
+  else if (ph === "dawn" && (force || all(p => p.actionDone))) next = "day";
+  else if (ph === "day" && (force || all(p => p.ready))) next = "afternoon";
+  else if (ph === "afternoon" && (force || all(p => p.actionDone))) next = "evening";
+  else if (ph === "evening" && (force || all(p => p.ready))) next = "vote";
+  else if (ph === "vote" && all(p => p.vote)) { computeResult(arr); return; }
+  if (!next) return;
+  advancing = true;
+  try {
+    const updates = { phase: next, phaseStartedAt: Date.now() };
+    if (next === "dawn") {
+      arr.forEach(p => { updates[`players/${p.id}/actionDone`] = !(p.role === "wolf" || p.role === "mokugeki" || p.role === "uranai"); });
+      logMsg("🌅 明け方：人狼の確認と占い師のアクション");
+    }
+    if (next === "day") { arr.forEach(p => { updates[`players/${p.id}/ready`] = false; }); logMsg("☀️ 昼の議論スタート（3分）"); }
+    if (next === "afternoon") {
+      arr.forEach(p => { updates[`players/${p.id}/actionDone`] = !(p.role === "keisatsu" || p.role === "dj"); });
+      logMsg("🌤️ 昼過ぎ：警察とDJのアクション");
+    }
+    if (next === "evening") { arr.forEach(p => { updates[`players/${p.id}/ready`] = false; }); logMsg("🌇 夕方の議論スタート（1分）"); }
+    if (next === "vote") logMsg("🗳️ 投票スタート！");
+    await roomRef.update(updates);
+  } finally { advancing = false; }
+}
+
+async function computeResult(arr) {
+  if (roomData.result) return;
+  advancing = true;
+  try {
+    const counts = {}, firstAt = {};
+    arr.forEach(p => {
+      if (!p.vote) return;
+      counts[p.vote] = (counts[p.vote] || 0) + 1;
+      if (!(p.vote in firstAt) || p.voteAt < firstAt[p.vote]) firstAt[p.vote] = p.voteAt || 0;
+    });
+    let exiledId = null, max = -1;
+    for (const [tid, c] of Object.entries(counts)) {
+      if (c > max || (c === max && firstAt[tid] < firstAt[exiledId])) { max = c; exiledId = tid; }
+    }
+    const byRole = (r) => arr.find(p => p.role === r);
+    const exiled = arr.find(p => p.id === exiledId);
+    const s = roomData.settings;
+    let winner, reason;
+    const rapper = byRole("rapper"), djP = byRole("dj"), witness = byRole("mokugeki");
+    if (s.rapperWin && rapper && djP && djP.vote === rapper.id) {
+      winner = "rapper"; reason = `🎤 DJがラッパーの ${rapper.name} さんに投票した！ラッパーの単独勝利`;
+    } else if (s.witnessTrap && witness && arr.some(p => p.role === "wolf" && p.vote === witness.id)) {
+      winner = "wolf"; reason = `👀 人狼が目撃者の ${witness.name} さんに投票した！人狼チームの勝ち`;
+    } else if (exiled && exiled.role === "wolf") {
+      winner = "citizen"; reason = `🚪 追放された ${exiled.name} さんは人狼だった！市民チームの勝ち`;
+    } else if (exiled && exiled.role === "obake") {
+      winner = "obake"; reason = `👻 追放されたのはおばけの ${exiled.name} さん！おばけの単独勝利`;
+    } else {
+      winner = "wolf"; reason = `🚪 追放された ${exiled ? exiled.name : "？"} さんは人狼じゃなかった…人狼チームの勝ち`;
+    }
+    await roomRef.update({ phase: "result", phaseStartedAt: Date.now(), result: { winner, reason, exiledId } });
+    logMsg("🏁 結果発表！ " + reason);
+  } finally { advancing = false; }
+}
+</script>
+</body>
+</html>
