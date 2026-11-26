@@ -101,7 +101,7 @@ const ROLES = {
   gang:     { name: "ギャングのボス", icon: "🕶️", team: "人狼チーム", color: "bg-rose-50 border-rose-200",   job: "仕事なし（罠が自動で発動）", desc: "警察に調べられると人狼チームの即勝利になる罠役職。" },
   shimin:   { name: "市民",         icon: "🧑", team: "市民チーム", color: "bg-sky-50 border-sky-200",       job: "仕事なし（議論と投票だけ）", desc: "能力なし。人狼を追放すれば勝ち。" },
   uranai:   { name: "占い師",       icon: "🔮", team: "市民チーム", color: "bg-violet-50 border-violet-300", job: "🌅明け方：1人の役職を見る", desc: "明け方に1人の役職を確認できる。" },
-  keisatsu: { name: "警察",         icon: "🚓", team: "市民チーム", color: "bg-blue-50 border-blue-300",     job: "🌤️昼過ぎ：1人の配られたカード1枚を見る", desc: "昼過ぎに1人の「配られた2枚のどちらか」を確認できる。" },
+  keisatsu: { name: "警察",         icon: "🚓", team: "市民チーム", color: "bg-blue-50 border-blue-300",     job: "🌤️昼過ぎ：1人の選ばなかった方（場のカード）を見る", desc: "昼過ぎに1人が選ばなかった方のカードを確認できる。警察はDJより先に動くよ。" },
   dj:       { name: "DJ",           icon: "🎧", team: "市民チーム", color: "bg-amber-50 border-amber-300",   job: "🌤️昼過ぎ：1人の役職を入れ替える", desc: "昼過ぎに1人の役職を、選ばれなかったほうに入れ替える。" },
   mokugeki: { name: "目撃者",       icon: "👀", team: "市民チーム", color: "bg-teal-50 border-teal-300",     job: "🌅明け方：人狼全員が分かる", desc: "明け方に人狼全員が分かる。人狼に投票されると人狼チームの勝ち。" },
   obake:    { name: "おばけ",       icon: "👻", team: "単独",       color: "bg-slate-100 border-slate-300",  job: "仕事なし（追放されたら勝ち）", desc: "自分が追放されたら単独勝利。" },
@@ -410,22 +410,22 @@ function afternoonPanelHTML() {
   const m = me(); if (!m || !m.role) return `<div class="bg-white rounded-2xl shadow p-4">…</div>`;
   const arr = playersArr();
   let inner = `<p class="font-black mb-2">🌤️ 昼過ぎ ／ あなたの役職：${ROLES[m.role].icon} ${ROLES[m.role].name}</p>`;
+  const policePlayer = arr.find(p => p.role === "keisatsu");
+  const policeDone = !policePlayer || !!policePlayer.actionDone;
   if (m.actionDone) {
     inner += `<p class="text-sm text-slate-500">アクション済み。みんなを待ってるよ…</p>`;
-    if (m.role === "keisatsu" && m.policeResult) inner += `<p class="text-sm mt-2">調査結果：<b>${esc(m.policeTargetName)} さんに配られた${m.policeCardIdx+1}枚目は ${ROLES[m.policeResult].icon} ${ROLES[m.policeResult].name}</b> だったよ（本人が選んだ役職とは限らないよ）</p>`;
+    if (m.role === "keisatsu" && m.policeResult) inner += `<p class="text-sm mt-2">調査結果：<b>${esc(m.policeTargetName)} さんが選ばなかった方は ${ROLES[m.policeResult].icon} ${ROLES[m.policeResult].name}</b> だったよ</p>`;
   } else if (m.role === "keisatsu") {
-    if (!m.policeStage) {
-      inner += `<p class="text-sm font-bold mb-2">調べたい人を選んでね</p><div class="grid grid-cols-2 gap-2">${arr.filter(p=>p.id!==myId).map(p=>`<button data-police-target="${p.id}" class="border-2 border-blue-300 bg-blue-50 rounded-xl py-2 font-bold card-btn">${esc(p.name)}</button>`).join("")}</div>`;
-    } else {
-      inner += `<p class="text-sm font-bold mb-2">${esc(m.policeTargetName)} さんに配られた、どっちのカードを調べる？</p><div class="grid grid-cols-2 gap-2">
-        <button data-police-card="0" class="border-2 border-blue-300 bg-blue-50 rounded-xl py-3 font-bold card-btn">1枚目を調べる</button>
-        <button data-police-card="1" class="border-2 border-blue-300 bg-blue-50 rounded-xl py-3 font-bold card-btn">2枚目を調べる</button></div>
-        <p class="text-xs text-rose-600 mt-2 font-bold">⚠️ もしそれがギャングのボスだったら、その場で人狼チームの勝ちになっちゃうよ</p>`;
-    }
+    inner += `<p class="text-sm font-bold mb-2">調べたい人を選んでね。その人が「選ばなかった方（場のカード）」が見えるよ</p><div class="grid grid-cols-2 gap-2">${arr.filter(p=>p.id!==myId).map(p=>`<button data-police-target="${p.id}" class="border-2 border-blue-300 bg-blue-50 rounded-xl py-2 font-bold card-btn">${esc(p.name)}</button>`).join("")}</div>
+      <p class="text-xs text-rose-600 mt-2 font-bold">⚠️ もし選ばなかった方がギャングのボスだったら、その場で人狼チームの勝ちになっちゃうよ</p>`;
   } else if (m.role === "dj") {
-    inner += `<p class="text-sm font-bold mb-2">役職を入れ替えたい人を選んでね（その人の役職が、選ばれなかったほうに変わるよ。本人も気づかない）</p>
+    if (!policeDone) {
+      inner += `<p class="text-sm font-bold mb-2">DJは警察のあとだよ。警察の調査が終わるのを待ってね…</p>`;
+    } else {
+      inner += `<p class="text-sm font-bold mb-2">役職を入れ替えたい人を選んでね（その人の役職が、選ばれなかったほうに変わるよ。本人も気づかない）</p>
       <div class="grid grid-cols-2 gap-2">${arr.filter(p=>p.id!==myId).map(p=>`<button data-dj="${p.id}" class="border-2 border-amber-300 bg-amber-50 rounded-xl py-2 font-bold card-btn">${esc(p.name)}</button>`).join("")}</div>
       <button id="btnDjSkip" class="w-full mt-2 bg-white border-2 border-slate-300 text-slate-600 font-bold rounded-xl py-2 card-btn">入れ替えない</button>`;
+    }
   } else {
     inner += `<p class="text-sm mb-3">あなたに昼過ぎのアクションはないよ。警察とDJが動いているみたい…</p><button id="btnAftOk" class="w-full bg-indigo-600 text-white font-bold rounded-xl py-3 card-btn">確認した</button>`;
   }
@@ -447,10 +447,19 @@ function resultPanelHTML() {
   const r = roomData.result; if (!r) return `<div class="bg-white rounded-2xl shadow p-4">集計中…</div>`;
   const arr = playersArr();
   const nameOf = (id) => { const p = arr.find(x=>x.id===id); return p ? p.name : "？"; };
+  const winnerIds = new Set(arr.filter(p => {
+    if (r.winner === "citizen") return p.role && ROLES[p.role].team === "市民チーム";
+    if (r.winner === "wolf") return p.role && ROLES[p.role].team === "人狼チーム";
+    if (r.winner === "obake") return p.role === "obake";
+    if (r.winner === "rapper") return p.role === "rapper";
+    return false;
+  }).map(p => p.id));
+  const winnerNames = arr.filter(p => winnerIds.has(p.id)).map(p => esc(p.name)).join("、");
   const votesHtml = arr.map(p => `<div class="text-sm border-b border-slate-100 py-1">${esc(p.name)} → <b>${esc(nameOf(p.vote))}</b></div>`).join("");
-  const rolesHtml = arr.map(p => `<div class="flex justify-between text-sm border-b border-slate-100 py-1"><span class="font-bold">${esc(p.name)}${p.id===r.exiledId?" 🚪追放":""}</span><span>${p.role?ROLES[p.role].icon+" "+ROLES[p.role].name:"？" } <span class="text-slate-400">(場: ${p.discard?ROLES[p.discard].name:"-"})</span></span></div>`).join("");
+  const rolesHtml = arr.map(p => `<div class="flex justify-between text-sm border-b border-slate-100 py-1"><span class="font-bold">${esc(p.name)}${winnerIds.has(p.id)?" 👑":""}${p.id===r.exiledId?" 🚪追放":""}${p.swappedByDj?" 🎧入れ替えられた":""}</span><span>${p.role?ROLES[p.role].icon+" "+ROLES[p.role].name:"？" } <span class="text-slate-400">(場: ${p.discard?ROLES[p.discard].name:"-"})</span></span></div>`).join("");
   return `<div class="bg-white rounded-2xl shadow p-4 fade-in">
     <p class="text-2xl font-black text-center mb-1">${TEAM_WIN_TEXT[r.winner] || r.winner}</p>
+    ${winnerNames ? `<p class="text-lg font-black text-center text-amber-600 mb-1">👑 勝者：${winnerNames}</p>` : ""}
     <p class="text-sm text-center text-slate-600 mb-3">${esc(r.reason)}</p>
     <p class="font-bold text-sm text-slate-500">投票の内訳</p>${votesHtml}
     <p class="font-bold text-sm text-slate-500 mt-3">みんなの正体</p>${rolesHtml}
@@ -481,13 +490,9 @@ function bindPanel(ph) {
   panel.querySelectorAll("[data-seer]").forEach(b => b.addEventListener("click", () => seerAction(b.dataset.seer)));
   const ready = $("btnReady"); if (ready) ready.addEventListener("click", () => roomRef.child(`players/${myId}`).update({ ready: true }));
   const force = $("btnForceNext"); if (force) force.addEventListener("click", () => hostAdvance(true));
-  panel.querySelectorAll("[data-police-target]").forEach(b => b.addEventListener("click", () => {
-    const t = playersArr().find(p => p.id === b.dataset.policeTarget);
-    roomRef.child(`players/${myId}`).update({ policeStage: 1, policeTarget: b.dataset.policeTarget, policeTargetName: t ? t.name : "" });
-  }));
-  panel.querySelectorAll("[data-police-card]").forEach(b => b.addEventListener("click", () => policeAction(Number(b.dataset.policeCard))));
+  panel.querySelectorAll("[data-police-target]").forEach(b => b.addEventListener("click", () => policeAction(b.dataset.policeTarget)));
   panel.querySelectorAll("[data-dj]").forEach(b => b.addEventListener("click", () => djAction(b.dataset.dj)));
-  const djSkip = $("btnDjSkip"); if (djSkip) djSkip.addEventListener("click", () => { roomRef.child(`players/${myId}`).update({ actionDone: true }); logMsg("🎧 DJは入れ替えなかったみたい"); });
+  const djSkip = $("btnDjSkip"); if (djSkip) djSkip.addEventListener("click", () => { roomRef.child(`players/${myId}`).update({ actionDone: true }); });
   const aftOk = $("btnAftOk"); if (aftOk) aftOk.addEventListener("click", () => roomRef.child(`players/${myId}`).update({ actionDone: true }));
   panel.querySelectorAll("[data-vote]").forEach(b => b.addEventListener("click", () => {
     roomRef.child(`players/${myId}`).update({ vote: b.dataset.vote, voteAt: Date.now() });
@@ -524,6 +529,7 @@ async function startGame() {
     updates[`players/${p.id}/policeTargetName`] = null;
     updates[`players/${p.id}/policeCardIdx`] = null;
     updates[`players/${p.id}/policeResult`] = null;
+    updates[`players/${p.id}/swappedByDj`] = false;
   });
   await roomRef.update(updates);
   logMsg("🎮 ゲームスタート！ 2枚から役職を選んでね");
@@ -538,23 +544,25 @@ function seerAction(targetId) {
   const t = playersArr().find(p => p.id === targetId); if (!t) return;
   roomRef.child(`players/${myId}`).update({ seerResult: t.role, seerTargetName: t.name });
 }
-async function policeAction(cardIdx) {
-  const m = me(); if (!m || !m.policeTarget) return;
-  const t = playersArr().find(p => p.id === m.policeTarget); if (!t || !t.cards) return;
-  const card = t.cards[cardIdx];
-  await roomRef.child(`players/${myId}`).update({ policeCardIdx: cardIdx, policeResult: card, actionDone: true });
-  logMsg("🚓 警察が誰かを調べたよ");
+async function policeAction(targetId) {
+  const t = playersArr().find(p => p.id === targetId); if (!t || !t.discard) return;
+  const card = t.discard;
+  await roomRef.child(`players/${myId}`).update({ policeTarget: targetId, policeTargetName: t.name, policeResult: card, actionDone: true });
+  logMsg("🚓 警察が動いたかも？");
   if (card === "gang" && roomData.settings.gangTrap) {
     await roomRef.update({ phase: "result", phaseStartedAt: Date.now(),
-      result: { winner: "wolf", reason: "🚓 警察がギャングのボスを調べちゃった！罠にかかって人狼チームの勝ち", exiledId: null } });
+      result: { winner: "wolf", reason: "🚓 警察がギャングのボスのカードを調べちゃった！罠にかかって人狼チームの勝ち", exiledId: null } });
     logMsg("🕶️ 罠発動！警察がギャングのボスを調べてしまった");
   }
 }
 async function djAction(targetId) {
-  const t = playersArr().find(p => p.id === targetId); if (!t) return;
-  await roomRef.child(`players/${targetId}`).update({ role: t.discard, discard: t.role });
+  const arr = playersArr();
+  const policePlayer = arr.find(p => p.role === "keisatsu");
+  if (policePlayer && !policePlayer.actionDone) return;
+  const t = arr.find(p => p.id === targetId); if (!t) return;
+  await roomRef.child(`players/${targetId}`).update({ role: t.discard, discard: t.role, swappedByDj: true });
   await roomRef.child(`players/${myId}`).update({ actionDone: true });
-  logMsg("🎧 DJが誰かの役職を入れ替えたみたい…");
+  logMsg("🎧 DJが動いたかも？");
 }
 async function resetToLobby() {
   const arr = playersArr();
@@ -563,7 +571,7 @@ async function resetToLobby() {
     updates[`players/${p.id}/cards`] = null; updates[`players/${p.id}/chosen`] = null;
     updates[`players/${p.id}/role`] = null; updates[`players/${p.id}/discard`] = null;
     updates[`players/${p.id}/ready`] = false; updates[`players/${p.id}/actionDone`] = false;
-    updates[`players/${p.id}/vote`] = null;
+    updates[`players/${p.id}/vote`] = null; updates[`players/${p.id}/swappedByDj`] = false;
   });
   await roomRef.update(updates);
   logMsg("🔁 設定に戻ったよ");
@@ -594,7 +602,7 @@ async function hostAdvance(force = false) {
     if (next === "day") { arr.forEach(p => { updates[`players/${p.id}/ready`] = false; }); logMsg("☀️ 昼の議論スタート（3分）"); }
     if (next === "afternoon") {
       arr.forEach(p => { updates[`players/${p.id}/actionDone`] = !(p.role === "keisatsu" || p.role === "dj"); });
-      logMsg("🌤️ 昼過ぎ：警察とDJのアクション");
+      logMsg("🌤️ 昼過ぎ：警察→DJの順でアクション");
     }
     if (next === "evening") { arr.forEach(p => { updates[`players/${p.id}/ready`] = false; }); logMsg("🌇 夕方の議論スタート（1分）"); }
     if (next === "vote") logMsg("🗳️ 投票スタート！");
