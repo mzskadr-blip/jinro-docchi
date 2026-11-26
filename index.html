@@ -335,6 +335,13 @@ function deckInfo() {
   const shimin = n * 2 - others;
   return { n, others, shimin, ok: n >= 3 && shimin >= 0 && (s.counts.wolf || 0) >= 1 };
 }
+// このゲームに入っているカードの内訳（選んだ分＋場の分ぜんぶ）
+function breakdownHTML() {
+  const s = roomData.settings, d = deckInfo();
+  const parts = ROLE_KEYS.filter(k => ((k === "shimin" ? d.shimin : (s.counts[k] || 0)) > 0))
+    .map(k => `${ROLES[k].icon}${ROLES[k].name} ${k === "shimin" ? d.shimin : s.counts[k]}枚`);
+  return `<p class="text-xs text-slate-500 mb-2">🃏 内訳（全${d.n * 2}枚）：${parts.join(" ／ ")}</p>`;
+}
 function lobbyPanelHTML() {
   const s = roomData.settings, d = deckInfo(), host = isHost();
   const countRow = (key) => {
@@ -398,6 +405,7 @@ function discussPanelHTML(ph) {
   return `<div class="bg-white rounded-2xl shadow p-4 fade-in">
     <p class="font-black text-lg">${title}</p>
     <p class="text-sm text-slate-500 mb-1">ボイチャで話し合ってね。タイマーは警告だけ、自動では進まないよ。</p>
+    ${breakdownHTML()}
     <p class="text-sm mb-3">あなたの役職：<b>${m && m.role ? ROLES[m.role].icon + " " + ROLES[m.role].name : "？"}</b></p>
     ${m && m.ready ? `<p class="font-bold text-emerald-600">✅ 話し終わり登録ずみ。みんなを待ってるよ…</p>`
       : `<button id="btnReady" class="w-full bg-emerald-600 text-white font-bold rounded-xl py-3 card-btn">話し終わった！</button>`}
