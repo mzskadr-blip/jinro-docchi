@@ -48,6 +48,10 @@
     <p>⑤ 夕方：議論1分 → 投票。追放された人の正体で勝敗が決まるよ</p>
     <p class="mt-1">⏰ タイマーは警告だけ（自動では進まない）。ボイチャしながら遊ぶ前提だよ。</p>
   </div>
+  <div class="bg-white/70 rounded-2xl p-4 mt-4">
+    <p class="font-bold text-slate-700 mb-2">🎭 役職と仕事の一覧</p>
+    <div id="roleGuide" class="space-y-2"></div>
+  </div>
 </div>
 
 <!-- ===== 部屋 ===== -->
@@ -92,16 +96,16 @@ const db = firebase.database();
 
 // ================= 役職定義 =================
 const ROLES = {
-  wolf:     { name: "人狼",         icon: "🐺", team: "人狼チーム", color: "bg-rose-100 border-rose-300",    desc: "仲間の人狼が分かる。市民を追放させれば勝ち。" },
-  uragiri:  { name: "裏切り者",     icon: "🗡️", team: "人狼チーム", color: "bg-rose-50 border-rose-200",     desc: "能力なし。人狼チーム。人狼を守るように立ち回ろう。" },
-  gang:     { name: "ギャングのボス", icon: "🕶️", team: "人狼チーム", color: "bg-rose-50 border-rose-200",   desc: "警察に調べられると人狼チームの即勝利になる罠役職。" },
-  shimin:   { name: "市民",         icon: "🧑", team: "市民チーム", color: "bg-sky-50 border-sky-200",       desc: "能力なし。人狼を追放すれば勝ち。" },
-  uranai:   { name: "占い師",       icon: "🔮", team: "市民チーム", color: "bg-violet-50 border-violet-300", desc: "明け方に1人の役職を確認できる。" },
-  keisatsu: { name: "警察",         icon: "🚓", team: "市民チーム", color: "bg-blue-50 border-blue-300",     desc: "昼過ぎに1人の「配られた2枚のどちらか」を確認できる。" },
-  dj:       { name: "DJ",           icon: "🎧", team: "市民チーム", color: "bg-amber-50 border-amber-300",   desc: "昼過ぎに1人の役職を、選ばれなかったほうに入れ替える。" },
-  mokugeki: { name: "目撃者",       icon: "👀", team: "市民チーム", color: "bg-teal-50 border-teal-300",     desc: "明け方に人狼全員が分かる。人狼に投票されると人狼チームの勝ち。" },
-  obake:    { name: "おばけ",       icon: "👻", team: "単独",       color: "bg-slate-100 border-slate-300",  desc: "自分が追放されたら単独勝利。" },
-  rapper:   { name: "ラッパー",     icon: "🎤", team: "単独",       color: "bg-lime-50 border-lime-300",     desc: "DJに投票されたら単独勝利。" }
+  wolf:     { name: "人狼",         icon: "🐺", team: "人狼チーム", color: "bg-rose-100 border-rose-300",    job: "🌅明け方：仲間の人狼を確認する", desc: "仲間の人狼が分かる。市民を追放させれば勝ち。" },
+  uragiri:  { name: "裏切り者",     icon: "🗡️", team: "人狼チーム", color: "bg-rose-50 border-rose-200",     job: "仕事なし（議論と投票だけ）", desc: "能力なし。人狼チーム。人狼を守るように立ち回ろう。" },
+  gang:     { name: "ギャングのボス", icon: "🕶️", team: "人狼チーム", color: "bg-rose-50 border-rose-200",   job: "仕事なし（罠が自動で発動）", desc: "警察に調べられると人狼チームの即勝利になる罠役職。" },
+  shimin:   { name: "市民",         icon: "🧑", team: "市民チーム", color: "bg-sky-50 border-sky-200",       job: "仕事なし（議論と投票だけ）", desc: "能力なし。人狼を追放すれば勝ち。" },
+  uranai:   { name: "占い師",       icon: "🔮", team: "市民チーム", color: "bg-violet-50 border-violet-300", job: "🌅明け方：1人の役職を見る", desc: "明け方に1人の役職を確認できる。" },
+  keisatsu: { name: "警察",         icon: "🚓", team: "市民チーム", color: "bg-blue-50 border-blue-300",     job: "🌤️昼過ぎ：1人の配られたカード1枚を見る", desc: "昼過ぎに1人の「配られた2枚のどちらか」を確認できる。" },
+  dj:       { name: "DJ",           icon: "🎧", team: "市民チーム", color: "bg-amber-50 border-amber-300",   job: "🌤️昼過ぎ：1人の役職を入れ替える", desc: "昼過ぎに1人の役職を、選ばれなかったほうに入れ替える。" },
+  mokugeki: { name: "目撃者",       icon: "👀", team: "市民チーム", color: "bg-teal-50 border-teal-300",     job: "🌅明け方：人狼全員が分かる", desc: "明け方に人狼全員が分かる。人狼に投票されると人狼チームの勝ち。" },
+  obake:    { name: "おばけ",       icon: "👻", team: "単独",       color: "bg-slate-100 border-slate-300",  job: "仕事なし（追放されたら勝ち）", desc: "自分が追放されたら単独勝利。" },
+  rapper:   { name: "ラッパー",     icon: "🎤", team: "単独",       color: "bg-lime-50 border-lime-300",     job: "仕事なし（DJに投票されたら勝ち）", desc: "DJに投票されたら単独勝利。" }
 };
 const ROLE_KEYS = Object.keys(ROLES);
 const TEAM_WIN_TEXT = { citizen: "🎉 市民チームの勝ち！", wolf: "🐺 人狼チームの勝ち！", obake: "👻 おばけの単独勝利！", rapper: "🎤 ラッパーの単独勝利！" };
@@ -309,8 +313,18 @@ function roleCardHTML(key, extra = "") {
     <div class="text-3xl">${r.icon}</div>
     <div class="font-black text-lg">${r.name}</div>
     <div class="text-xs font-bold text-slate-500">${r.team}</div>
+    <div class="text-xs font-bold text-indigo-700 mt-1">🛠️ 仕事：${r.job}</div>
     <div class="text-xs text-slate-600 mt-1">${r.desc}</div></div>`;
 }
+function roleGuideRowHTML(key) {
+  const r = ROLES[key];
+  return `<div class="border-2 ${r.color} rounded-xl px-3 py-2">
+    <div class="flex items-baseline justify-between gap-2"><span class="font-black">${r.icon} ${r.name}</span><span class="text-xs font-bold text-slate-500">${r.team}</span></div>
+    <div class="text-xs font-bold text-indigo-700 mt-0.5">🛠️ 仕事：${r.job}</div>
+    <div class="text-xs text-slate-600">${r.desc}</div></div>`;
+}
+// トップページの役職一覧
+$("roleGuide").innerHTML = ROLE_KEYS.map(roleGuideRowHTML).join("");
 
 // ---- ロビー（設定） ----
 function deckInfo() {
@@ -328,7 +342,7 @@ function lobbyPanelHTML() {
     const v = s.counts[key] || 0;
     const max = key === "wolf" ? 3 : key === "uragiri" ? 2 : 1;
     const btns = host ? `<span class="flex gap-1">${[0,1,2,3].filter(x=>x<=max).map(x=>`<button data-count="${key}:${x}" class="w-8 h-8 rounded-full border-2 font-bold ${x===v?"bg-indigo-600 text-white border-indigo-600":"bg-white border-slate-300"}">${x}</button>`).join("")}</span>` : `<span class="font-black">${v}枚</span>`;
-    return `<div class="flex items-center justify-between py-1 border-b border-slate-100"><span class="text-sm font-bold">${r.icon} ${r.name} <span class="text-xs text-slate-400">${r.team}</span></span>${btns}</div>`;
+    return `<div class="py-1 border-b border-slate-100"><div class="flex items-center justify-between"><span class="text-sm font-bold">${r.icon} ${r.name} <span class="text-xs text-slate-400">${r.team}</span></span>${btns}</div><div class="text-xs font-bold text-indigo-700 mt-0.5">🛠️ 仕事：${r.job}</div><div class="text-xs text-slate-500">${r.desc}</div></div>`;
   };
   const toggle = (key, label) => `<label class="flex items-center justify-between py-1 text-sm font-bold"><span>${label}</span><input type="checkbox" data-toggle="${key}" ${s[key]?"checked":""} ${host?"":"disabled"} class="w-5 h-5 accent-indigo-600"></label>`;
   const timeInput = (key, label) => `<label class="flex items-center justify-between py-1 text-sm font-bold"><span>${label}</span><span><input type="number" data-time="${key}" value="${Math.round(s[key]/60*10)/10}" min="0" step="0.5" ${host?"":"disabled"} class="w-20 border-2 border-slate-200 rounded-lg px-2 py-1 text-right"> 分</span></label>`;
@@ -337,6 +351,7 @@ function lobbyPanelHTML() {
     <p class="text-sm text-slate-500 mb-2">参加者 ${d.n}人 ／ カード合計 ${d.n*2}枚（1人2枚）／ 市民は自動で <b>${Math.max(d.shimin,0)}枚</b></p>
     ${host ? `<div class="flex gap-2 mb-2">${["easy","normal","full"].map(p=>`<button data-preset="${p}" class="flex-1 rounded-xl border-2 py-2 font-bold ${s.preset===p?"bg-indigo-600 text-white border-indigo-600":"bg-white border-slate-300"}">${{easy:"かんたん",normal:"ふつう",full:"フル"}[p]}</button>`).join("")}</div>` : ""}
     ${ROLE_KEYS.filter(k=>k!=="shimin").map(countRow).join("")}
+    <div class="py-1 border-b border-slate-100"><div class="flex items-center justify-between"><span class="text-sm font-bold">${ROLES.shimin.icon} ${ROLES.shimin.name} <span class="text-xs text-slate-400">${ROLES.shimin.team}</span></span><span class="text-sm font-black">自動 ${Math.max(d.shimin,0)}枚</span></div><div class="text-xs font-bold text-indigo-700 mt-0.5">🛠️ 仕事：${ROLES.shimin.job}</div><div class="text-xs text-slate-500">${ROLES.shimin.desc}</div></div>
     <div class="mt-2">${toggle("rapperWin","🎤 ラッパー特殊勝利（DJが投票したら勝ち）")}${toggle("witnessTrap","👀 目撃者の罠（人狼が投票したら人狼勝ち）")}${toggle("gangTrap","🕶️ ギャングの罠（警察に調べられたら人狼勝ち）")}</div>
     <div class="mt-2 border-t border-slate-100 pt-2">${timeInput("daySec","☀️ 昼の議論")}${timeInput("eveningSec","🌇 夕方の議論")}${timeInput("voteSec","🗳️ 投票")}</div>
     ${!d.ok ? `<p class="text-sm text-rose-600 font-bold mt-2">${d.n<3?"3人以上でスタートできるよ":(s.counts.wolf||0)<1?"人狼を1枚以上入れてね":"役職が多すぎるよ（市民がマイナスになってる）"}</p>` : ""}
